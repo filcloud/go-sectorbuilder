@@ -99,6 +99,12 @@ func goSealedSectorMetadata(src *C.sector_builder_ffi_FFISealedSectorMetadata, s
 			return []SealedSectorMetadata{}, errors.Wrap(err, "failed to marshal sealed sector health")
 		}
 
+		commCSlice := goBytes(ptrs[i].p_aux.comm_c_ptr, ptrs[i].p_aux.comm_c_len)
+		commRLastSlice := goBytes(ptrs[i].p_aux.comm_r_last_ptr, ptrs[i].p_aux.comm_r_last_len)
+		var pAux PersistentAux
+		copy(pAux.CommC[:], commCSlice)
+		copy(pAux.CommRLast[:], commRLastSlice)
+
 		sectors[i] = SealedSectorMetadata{
 			SectorID: uint64(ptrs[i].sector_id),
 			CommD:    commD,
@@ -107,6 +113,7 @@ func goSealedSectorMetadata(src *C.sector_builder_ffi_FFISealedSectorMetadata, s
 			Pieces:   pieces,
 			Health:   health,
 			Ticket:   goSealTicket(ptrs[i].seal_ticket),
+			PAux:     pAux,
 		}
 	}
 

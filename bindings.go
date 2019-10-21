@@ -99,6 +99,7 @@ type SealedSectorMetadata struct {
 	Pieces    []PieceMetadata
 	Health    sealed_sector_health.Health
 	Ticket    SealTicket
+	PAux      PersistentAux
 }
 
 // SectorSealingStatus communicates how far along in the sealing process a
@@ -120,6 +121,11 @@ type PieceMetadata struct {
 	Size           uint64
 	InclusionProof []byte
 	CommP          [CommitmentBytesLen]byte
+}
+
+type PersistentAux struct {
+	CommC     [CommitmentBytesLen]byte
+	CommRLast [CommitmentBytesLen]byte
 }
 
 // VerifySeal returns true if the sealing operation from which its inputs were

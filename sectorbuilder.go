@@ -27,6 +27,8 @@ type SectorBuilder struct {
 
 	sectors  SectorProvider
 	stopping chan struct{}
+
+	readCallback InternalReadCallback
 }
 
 func New(sectors SectorProvider, cfg *Config) (*SectorBuilder, error) {
@@ -43,6 +45,8 @@ func New(sectors SectorProvider, cfg *Config) (*SectorBuilder, error) {
 		sectors: sectors,
 
 		stopping: make(chan struct{}),
+
+		readCallback: DefaultReadCallback,
 	}
 
 	return sb, nil

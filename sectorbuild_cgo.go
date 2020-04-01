@@ -1,10 +1,11 @@
-//+build cgo
+// +build cgo
 
 package sectorbuilder
 
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 
 	"github.com/ipfs/go-cid"
@@ -250,6 +251,40 @@ func (sb *SectorBuilder) SealCommit2(ctx context.Context, sector abi.SectorID, p
 	return ffi.SealCommitPhase2(phase1Out, sector.Number, sector.Miner)
 }
 
+type ReadCallback func(ctx context.Context, miner uint64, sectorID uint64, cacheID string, offset uint64, size uint64, buf []byte) uint64
+
+type InternalReadCallback func(ctx context.Context, info ffi.PrivateSectorInfo, miner uint64, sectorID uint64, cacheID string, offset uint64, size uint64, buf []byte) uint64
+
+var DefaultReadCallback InternalReadCallback
+
+func (sb *SectorBuilder) SetNetReadCallback(cb ReadCallback, tryLocal bool) {
+	sb.readCallback = func(ctx context.Context, info ffi.PrivateSectorInfo, miner uint64, sectorID uint64, cacheID string, offset uint64, size uint64, buf []byte) uint64 {
+		if tryLocal {
+			n := DefaultReadCallback(ctx, info, miner, sectorID, cacheID, offset, size, buf)
+			if n != math.MaxUint64 {
+				return n
+			}
+		}
+		return cb(ctx, miner, sectorID, cacheID, offset, size, buf)
+	}
+}
+
+func (sb *SectorBuilder) buildNetReadCallback(ctx context.Context, info ffi.SortedPrivateSectorInfo, miner uint64) ffi.NetReadCallback {
+	sectors := make(map[uint64]ffi.PrivateSectorInfo)
+	for _, f := range info.Values() {
+		sectors[uint64(f.SectorNumber)] = f
+	}
+
+	// TODO: local cache according to same sectorID/cacheID/offset/size
+	return func(sectorID uint64, cacheID string, offset uint64, size uint64, buf []byte) uint64 {
+		f, ok := sectors[sectorID]
+		if !ok {
+			panic("sector not found") // should never go here
+		}
+		return sb.readCallback(ctx, f, miner, sectorID, cacheID, offset, size, buf)
+	}
+}
+
 func (sb *SectorBuilder) ComputeElectionPoSt(ctx context.Context, miner abi.ActorID, sectorInfo []abi.SectorInfo, challengeSeed abi.PoStRandomness, winners []abi.PoStCandidate) ([]abi.PoStProof, error) {
 	challengeSeed[31] = 0
 
@@ -258,7 +293,7 @@ func (sb *SectorBuilder) ComputeElectionPoSt(ctx context.Context, miner abi.Acto
 		return nil, err
 	}
 
-	return ffi.GeneratePoSt(miner, privsects, challengeSeed, winners)
+	return ffi.GeneratePoSt(miner, privsects, challengeSeed, winners, sb.buildNetReadCallback(ctx, privsects, uint64(miner)))
 }
 
 func (sb *SectorBuilder) GenerateEPostCandidates(ctx context.Context, miner abi.ActorID, sectorInfo []abi.SectorInfo, challengeSeed abi.PoStRandomness, faults []abi.SectorNumber) ([]storage.PoStCandidateWithTicket, error) {
@@ -270,7 +305,7 @@ func (sb *SectorBuilder) GenerateEPostCandidates(ctx context.Context, miner abi.
 	challengeSeed[31] = 0
 
 	challengeCount := ElectionPostChallengeCount(uint64(len(sectorInfo)), uint64(len(faults)))
-	pc, err := ffi.GenerateCandidates(miner, challengeSeed, challengeCount, privsectors)
+	pc, err := ffi.GenerateCandidates(miner, challengeSeed, challengeCount, privsectors, sb.buildNetReadCallback(ctx, privsectors, uint64(miner)))
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +322,7 @@ func (sb *SectorBuilder) GenerateFallbackPoSt(ctx context.Context, miner abi.Act
 	challengeCount := fallbackPostChallengeCount(uint64(len(sectorInfo)), uint64(len(faults)))
 	challengeSeed[31] = 0
 
-	candidates, err := ffi.GenerateCandidates(miner, challengeSeed, challengeCount, privsectors)
+	candidates, err := ffi.GenerateCandidates(miner, challengeSeed, challengeCount, privsectors, sb.buildNetReadCallback(ctx, privsectors, uint64(miner)))
 	if err != nil {
 		return storage.FallbackPostOut{}, err
 	}
@@ -297,7 +332,7 @@ func (sb *SectorBuilder) GenerateFallbackPoSt(ctx context.Context, miner abi.Act
 		winners[idx] = candidates[idx].Candidate
 	}
 
-	proof, err := ffi.GeneratePoSt(miner, privsectors, challengeSeed, winners)
+	proof, err := ffi.GeneratePoSt(miner, privsectors, challengeSeed, winners, sb.buildNetReadCallback(ctx, privsectors, uint64(miner)))
 	return storage.FallbackPostOut{
 		PoStInputs: ffiToStorageCandidates(candidates),
 		Proof:      proof,

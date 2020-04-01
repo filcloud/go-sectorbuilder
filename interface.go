@@ -17,6 +17,7 @@ const (
 	FTUnsealed SectorFileType = 1 << iota
 	FTSealed
 	FTCache
+	FTMeta
 )
 
 func (t SectorFileType) String() string {
@@ -27,6 +28,8 @@ func (t SectorFileType) String() string {
 		return "sealed"
 	case FTCache:
 		return "cache"
+	case FTMeta:
+		return "meta"
 	default:
 		return fmt.Sprintf("<unknown %d>", t)
 	}
